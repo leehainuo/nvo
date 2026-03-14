@@ -1,0 +1,44 @@
+server:
+  name: nvo-api
+  host: 0.0.0.0
+  port: 8080
+  mode: debug
+
+database:
+  driver: mysql
+  host: localhost
+  port: 3306
+  database: nvo
+  username: root
+  password: 
+  max_idle_conns: 10
+  max_open_conns: 100
+  conn_max_lifetime: 3600
+
+redis:
+  host: localhost
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 10
+
+log:
+  level: info
+  format: console
+  output_path: stdout
+
+auth:
+  model_path: ""
+  policy_path: ""
+
+jwt:
+  secret: "your-super-secret-key-change-in-production"
+  issuer: "nvo-api"
+  access_expire: 15m          # 15 分钟
+  refresh_expire: 168h        # 7 天
+  enable_refresh: true
+
+ratelimit:
+  rate: 10                    # 每秒生成令牌数（仅内存模式使用）
+  capacity: 100               # 时间窗口内最大请求数
+  window: 1m                  # 时间窗口（支持: s, m, h）
