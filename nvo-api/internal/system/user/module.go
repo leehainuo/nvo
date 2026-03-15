@@ -2,44 +2,66 @@ package user
 
 import (
 	"nvo-api/core"
-	"nvo-api/core/log"
 	"nvo-api/internal/system/user/api"
 	"nvo-api/internal/system/user/domain"
 	"nvo-api/internal/system/user/service"
-	"nvo-api/internal/system/user/repository"
 
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 // Module 用户模块
 type Module struct {
 	pocket  *core.Pocket
+	service domain.UserService
 	handler *api.UserHandler
 }
 
 // NewModule 创建用户模块
 func NewModule(pocket *core.Pocket) *Module {
-	userRepo := repository.NewUserRepository(pocket.DB)
-	userService := service.NewUserService(userRepo)
-	userHandler := api.NewUserHandler(userService)
+	// 初始化服务（显式传入依赖）
+	userService := service.NewUserService(
+		pocket.DB,
+		pocket.Enforcer,
+		pocket.System.Role,
+	)
 
-	if err := pocket.DB.AutoMigrate(&domain.User{}); err != nil {
-		log.Error("Failed to migrate user table", zap.Error(err))
-	}
+	// 初始化处理器
+	userHandler := api.NewUserHandler(userService)
 
 	return &Module{
 		pocket:  pocket,
+		service: userService,
 		handler: userHandler,
 	}
 }
 
-// RegisterRoutes 注册路由
-func (m *Module) RegisterRoutes(r *gin.RouterGroup) {
-	m.handler.RegisterRoutes(r)
+// Service 返回服务接口（供注册到 Pocket）
+func (m *Module) Service() domain.UserService {
+	return m.service
 }
 
 // Name 模块名称
 func (m *Module) Name() string {
 	return "user"
+}
+
+// Models 返回需要迁移的数据模型
+func (m *Module) Models() []any {
+	return []any{
+		&domain.User{},
+	}
+}
+
+// RegisterRoutes 注册路由
+func (m *Module) RegisterRoutes(r *gin.RouterGroup) {
+	users := r.Group("/users")
+	{
+		users.POST("", m.handler.Create)
+		users.GET("", m.handler.List)
+		users.GET("/:id", m.handler.GetByID)
+		users.GET("/:id/roles", m.handler.GetUserWithRoles) // ✅ 跨模块接口
+		users.PUT("/:id", m.handler.Update)
+		users.DELETE("/:id", m.handler.Delete)
+		users.PUT("/:id/password", m.handler.ChangePassword)
+	}
 }

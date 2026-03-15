@@ -8,10 +8,12 @@ import (
 	"nvo-api/core/config"
 	"nvo-api/core/log"
 	"nvo-api/core/middleware"
+	"nvo-api/internal"
 	"nvo-api/pkg/client/mysql"
 	"nvo-api/pkg/client/redis"
 	"nvo-api/pkg/util/jwt"
 
+	"github.com/casbin/casbin/v3"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -21,15 +23,23 @@ import (
 )
 
 // Pocket - 口袋 （依赖注入容器）
-// 管理所有应用级依赖，业务模块通过 Pocket 获取所需资源
+// 管理所有应用级依赖和业务服务，业务模块通过 Pocket 获取所需资源
 type Pocket struct {
+	// 基础设施依赖
 	Config      *config.Config
 	DB          *gorm.DB
 	Redis       *goredis.Client
 	JWT         *jwt.JWT
-	Enforcer    *auth.Enforcer
+	Enforcer    *casbin.SyncedEnforcer
 	GinEngine   *gin.Engine
 	RateLimiter middleware.RateLimiter
+
+	// 业务服务
+	System *internal.SystemService
+
+	// 未来可扩展其他模块：
+	// Business *businessDomain.BusinessService // 业务模块服务聚合
+	// Platform *platformDomain.PlatformService // 平台模块服务聚合
 }
 
 // Close 优雅关闭所有资源

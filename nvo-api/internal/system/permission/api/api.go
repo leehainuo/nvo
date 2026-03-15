@@ -5,18 +5,19 @@ import (
 
 	"nvo-api/core/auth"
 
+	"github.com/casbin/casbin/v3"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
 // PermissionHandler 权限处理器
 type PermissionHandler struct {
-	enforcer *auth.Enforcer
+	enforcer *casbin.SyncedEnforcer
 	logger   *zap.Logger
 }
 
 // NewPermissionHandler 创建权限处理器
-func NewPermissionHandler(enforcer *auth.Enforcer, logger *zap.Logger) *PermissionHandler {
+func NewPermissionHandler(enforcer *casbin.SyncedEnforcer, logger *zap.Logger) *PermissionHandler {
 	return &PermissionHandler{
 		enforcer: enforcer,
 		logger:   logger,
@@ -44,18 +45,35 @@ func (h *PermissionHandler) GetUserMenus(c *gin.Context) {
 	subject := "user:" + userID.(string)
 
 	// 定义所有菜单（通常从数据库读取）
+	// Code 使用路径格式，与前端路由和权限检查保持一致
 	allMenus := []Menu{
-		{Code: "dashboard", Name: "工作台", Icon: "dashboard", Path: "/dashboard", Sort: 1},
-		{Code: "system", Name: "系统管理", Icon: "setting", Sort: 100},
-		{Code: "system.user", Name: "用户管理", Icon: "user", Path: "/system/user", ParentCode: "system", Sort: 101},
-		{Code: "system.role", Name: "角色管理", Icon: "team", Path: "/system/role", ParentCode: "system", Sort: 102},
-		{Code: "system.permission", Name: "权限管理", Icon: "lock", Path: "/system/permission", ParentCode: "system", Sort: 103},
+		{Code: "/dashboard", Name: "工作台", Icon: "dashboard", Path: "/dashboard", Sort: 1},
+		{Code: "/system", Name: "系统管理", Icon: "setting", Path: "/system", Sort: 100},
+		{Code: "/system/user", Name: "用户管理", Icon: "user", Path: "/system/user", ParentCode: "/system", Sort: 101},
+		{Code: "/system/role", Name: "角色管理", Icon: "team", Path: "/system/role", ParentCode: "/system", Sort: 102},
+		{Code: "/system/permission", Name: "权限管理", Icon: "lock", Path: "/system/permission", ParentCode: "/system", Sort: 103},
+	}
+
+	// 检查是否是超级管理员
+	roles, _ := h.enforcer.GetRolesForUser(subject)
+	isSuperAdmin := false
+	for _, role := range roles {
+		if role == "role:super_admin" {
+			isSuperAdmin = true
+			break
+		}
 	}
 
 	// 过滤用户有权限的菜单
 	var accessibleMenus []Menu
 	for _, menu := range allMenus {
-		ok, err := h.enforcer.CheckMenu(subject, menu.Code, "view")
+		// 超管直接通过
+		if isSuperAdmin {
+			accessibleMenus = append(accessibleMenus, menu)
+			continue
+		}
+
+		ok, err := h.enforcer.Enforce(subject, menu.Code, "view", string(auth.PermissionMenu))
 		if err != nil {
 			h.logger.Error("failed to check menu permission",
 				zap.String("user", subject),
@@ -114,10 +132,26 @@ func (h *PermissionHandler) GetUserButtons(c *gin.Context) {
 	// 定义该页面的所有按钮（通常从数据库读取）
 	allButtons := getPageButtons(page)
 
+	// 检查是否是超级管理员
+	roles, _ := h.enforcer.GetRolesForUser(subject)
+	isSuperAdmin := false
+	for _, role := range roles {
+		if role == "role:super_admin" {
+			isSuperAdmin = true
+			break
+		}
+	}
+
 	// 过滤用户有权限的按钮
 	var accessibleButtons []Button
 	for _, btn := range allButtons {
-		ok, err := h.enforcer.CheckButton(subject, btn.Code, "click")
+		// 超管直接通过
+		if isSuperAdmin {
+			accessibleButtons = append(accessibleButtons, btn)
+			continue
+		}
+
+		ok, err := h.enforcer.Enforce(subject, btn.Code, "click", string(auth.PermissionButton))
 		if err != nil {
 			h.logger.Error("failed to check button permission",
 				zap.String("user", subject),
@@ -193,13 +227,13 @@ func (h *PermissionHandler) GetUserPermissions(c *gin.Context) {
 
 // Menu 菜单结构
 type Menu struct {
-	Code       string  `json:"code"`        // 菜单编码
-	Name       string  `json:"name"`        // 菜单名称
-	Icon       string  `json:"icon"`        // 图标
-	Path       string  `json:"path"`        // 路由路径
-	ParentCode string  `json:"parent_code"` // 父菜单编码
-	Sort       int     `json:"sort"`        // 排序
-	Children   []Menu  `json:"children,omitempty"` // 子菜单
+	Code       string `json:"code"`               // 菜单编码
+	Name       string `json:"name"`               // 菜单名称
+	Icon       string `json:"icon"`               // 图标
+	Path       string `json:"path"`               // 路由路径
+	ParentCode string `json:"parent_code"`        // 父菜单编码
+	Sort       int    `json:"sort"`               // 排序
+	Children   []Menu `json:"children,omitempty"` // 子菜单
 }
 
 // Button 按钮结构
@@ -237,20 +271,21 @@ func buildMenuTree(menus []Menu) []Menu {
 }
 
 // getPageButtons 获取页面的所有按钮（示例，实际应从数据库读取）
+// 按钮编码格式：模块:资源:操作 (例如 sys:user:create)
 func getPageButtons(page string) []Button {
 	buttonMap := map[string][]Button{
 		"user": {
-			{Code: "user.create", Name: "新建", Type: "primary", Icon: "plus"},
-			{Code: "user.edit", Name: "编辑", Type: "default", Icon: "edit"},
-			{Code: "user.delete", Name: "删除", Type: "danger", Icon: "delete"},
-			{Code: "user.export", Name: "导出", Type: "default", Icon: "download"},
-			{Code: "user.import", Name: "导入", Type: "default", Icon: "upload"},
+			{Code: "sys:user:create", Name: "新建", Type: "primary", Icon: "plus"},
+			{Code: "sys:user:edit", Name: "编辑", Type: "default", Icon: "edit"},
+			{Code: "sys:user:delete", Name: "删除", Type: "danger", Icon: "delete"},
+			{Code: "sys:user:export", Name: "导出", Type: "default", Icon: "download"},
+			{Code: "sys:user:import", Name: "导入", Type: "default", Icon: "upload"},
 		},
 		"role": {
-			{Code: "role.create", Name: "新建", Type: "primary", Icon: "plus"},
-			{Code: "role.edit", Name: "编辑", Type: "default", Icon: "edit"},
-			{Code: "role.delete", Name: "删除", Type: "danger", Icon: "delete"},
-			{Code: "role.assign", Name: "分配权限", Type: "primary", Icon: "key"},
+			{Code: "sys:role:create", Name: "新建", Type: "primary", Icon: "plus"},
+			{Code: "sys:role:edit", Name: "编辑", Type: "default", Icon: "edit"},
+			{Code: "sys:role:delete", Name: "删除", Type: "danger", Icon: "delete"},
+			{Code: "sys:role:assign", Name: "分配权限", Type: "primary", Icon: "key"},
 		},
 	}
 
