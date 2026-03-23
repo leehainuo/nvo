@@ -27,8 +27,9 @@ type LogConfig struct {
 }
 
 type AuthConfig struct {
-	ModelPath  string `mapstructure:"model_path"`
-	PolicyPath string `mapstructure:"policy_path"`
+	ModelPath  string   `mapstructure:"model_path"`
+	PolicyPath string   `mapstructure:"policy_path"`
+	Whitelist  []string `mapstructure:"whitelist"`
 }
 
 // LoadConfig 加载配置文件

@@ -1,0 +1,36 @@
+server:
+  host: "127.0.0.1"
+  port: 8081
+  mode: "beta"
+
+mysql:
+  host: "127.0.0.1"
+  port: 3306
+  database: "moka_beta"
+  username: "root"
+  password: ""
+  max_idle_conns: 10
+  max_open_conns: 100
+  conn_max_lifetime: 3600
+
+redis:
+  host: "127.0.0.1"
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 10
+
+log:
+  level: "debug"
+  format: "console"
+  output_path: "stdout"
+  max_size: 100
+  max_backups: 10
+  max_age: 30
+  compress: true
+
+jwt:
+  secret: "beta-secret-key"
+  issuer: "moka"
+  access_expire: 2h
+  refresh_expire: 168h

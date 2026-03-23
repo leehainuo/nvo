@@ -68,3 +68,28 @@ type UserResponse struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+// ToResponse 将 User 转换为 UserResponse
+func (u *User) ToResponse(roles []string) *UserResponse {
+	return &UserResponse{
+		ID:        u.ID,
+		Username:  u.Username,
+		Nickname:  u.Nickname,
+		Email:     u.Email,
+		Phone:     u.Phone,
+		Avatar:    u.Avatar,
+		Status:    u.Status,
+		Roles:     roles,
+		CreatedAt: u.CreatedAt,
+		UpdatedAt: u.UpdatedAt,
+	}
+}
+
+// ToResponseList 批量转换 User 列表为 UserResponse 列表
+func ToResponseList(users []*User, rolesMap map[uint][]string) []*UserResponse {
+	responses := make([]*UserResponse, 0, len(users))
+	for _, user := range users {
+		responses = append(responses, user.ToResponse(rolesMap[user.ID]))
+	}
+	return responses
+}

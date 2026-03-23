@@ -5,13 +5,14 @@ import (
 	"nvo-api/internal/system/menu/api"
 	"nvo-api/internal/system/menu/domain"
 	"nvo-api/internal/system/menu/service"
+
 	"github.com/gin-gonic/gin"
 )
 
 type Module struct {
 	pocket  *core.Pocket
-	service domain.MenuService
 	handler *api.MenuHandler
+	service domain.MenuService
 }
 
 func NewModule(pocket *core.Pocket) *Module {
@@ -20,8 +21,8 @@ func NewModule(pocket *core.Pocket) *Module {
 
 	return &Module{
 		pocket:  pocket,
-		service: menuService,
 		handler: menuHandler,
+		service: menuService,
 	}
 }
 

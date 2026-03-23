@@ -4,11 +4,13 @@ import (
 	"github.com/gin-gonic/gin"
 
 	auditDomain "nvo-api/internal/system/audit/domain"
-	deptDomain "nvo-api/internal/system/dept/domain"
-	menuDomain "nvo-api/internal/system/menu/domain"
-	permDomain "nvo-api/internal/system/permission/domain"
-	roleDomain "nvo-api/internal/system/role/domain"
-	userDomain "nvo-api/internal/system/user/domain"
+	authDomain  "nvo-api/internal/system/auth/domain"
+	deptDomain  "nvo-api/internal/system/dept/domain"
+	dictDomain  "nvo-api/internal/system/dict/domain"
+	menuDomain  "nvo-api/internal/system/menu/domain"
+	permDomain  "nvo-api/internal/system/permission/domain"
+	roleDomain  "nvo-api/internal/system/role/domain"
+	userDomain  "nvo-api/internal/system/user/domain"
 )
 
 // Module 模块接口
@@ -28,6 +30,8 @@ type SystemService struct {
 	Menu       menuDomain.MenuService       // 菜单服务
 	Dept       deptDomain.DeptService       // 部门服务
 	Audit      auditDomain.AuditService     // 审计服务
+	Auth       authDomain.AuthService       // 认证服务
+	Dict       dictDomain.DictService       // 字典服务
 }
 
 // NewSystemService 创建系统服务聚合
@@ -38,6 +42,8 @@ func NewSystemService(
 	menuService menuDomain.MenuService,
 	deptService deptDomain.DeptService,
 	auditService auditDomain.AuditService,
+	authService authDomain.AuthService,
+	dictService dictDomain.DictService,
 ) *SystemService {
 	return &SystemService{
 		User:       userService,
@@ -46,5 +52,7 @@ func NewSystemService(
 		Menu:       menuService,
 		Dept:       deptService,
 		Audit:      auditService,
+		Auth:       authService,
+		Dict:       dictService,
 	}
 }

@@ -188,28 +188,3 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 
 	response.Success(c, gin.H{"message": "密码修改成功"})
 }
-
-// GetUserWithRoles 获取用户及其角色详情（跨模块调用示例）
-// @Summary 获取用户及其角色详情
-// @Tags 用户管理
-// @Produce json
-// @Param id path int true "用户ID"
-// @Success 200 {object} response.Response
-// @Router /api/v1/users/{id}/roles [get]
-func (h *UserHandler) GetUserWithRoles(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		response.Error(c, errors.New("无效的用户ID"))
-		return
-	}
-
-	// ✅ 自动跨模块调用：UserService 内部通过 Pocket 调用 RoleService
-	userWithRoles, err := h.service.GetUserWithRoles(uint(id))
-	if err != nil {
-		log.Error("get user with roles failed", zap.Error(err))
-		response.Error(c, err)
-		return
-	}
-
-	response.Success(c, userWithRoles)
-}

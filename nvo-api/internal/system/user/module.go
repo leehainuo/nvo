@@ -12,13 +12,13 @@ import (
 // Module 用户模块
 type Module struct {
 	pocket  *core.Pocket
-	service domain.UserService
 	handler *api.UserHandler
+	service domain.UserService
 }
 
 // NewModule 创建用户模块
 func NewModule(pocket *core.Pocket) *Module {
-	// 初始化服务（显式传入依赖）
+	// 初始化服务
 	userService := service.NewUserService(
 		pocket.DB,
 		pocket.Enforcer,
@@ -30,8 +30,8 @@ func NewModule(pocket *core.Pocket) *Module {
 
 	return &Module{
 		pocket:  pocket,
-		service: userService,
 		handler: userHandler,
+		service: userService,
 	}
 }
 
@@ -59,7 +59,6 @@ func (m *Module) RegisterRoutes(r *gin.RouterGroup) {
 		users.POST("", m.handler.Create)
 		users.GET("", m.handler.List)
 		users.GET("/:id", m.handler.GetByID)
-		users.GET("/:id/roles", m.handler.GetUserWithRoles) // ✅ 跨模块接口
 		users.PUT("/:id", m.handler.Update)
 		users.DELETE("/:id", m.handler.Delete)
 		users.PUT("/:id/password", m.handler.ChangePassword)

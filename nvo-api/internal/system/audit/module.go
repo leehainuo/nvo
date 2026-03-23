@@ -5,13 +5,14 @@ import (
 	"nvo-api/internal/system/audit/api"
 	"nvo-api/internal/system/audit/domain"
 	"nvo-api/internal/system/audit/service"
+
 	"github.com/gin-gonic/gin"
 )
 
 type Module struct {
 	pocket  *core.Pocket
-	service domain.AuditService
 	handler *api.AuditHandler
+	service domain.AuditService
 }
 
 func NewModule(pocket *core.Pocket) *Module {
@@ -20,8 +21,8 @@ func NewModule(pocket *core.Pocket) *Module {
 
 	return &Module{
 		pocket:  pocket,
-		service: auditService,
 		handler: auditHandler,
+		service: auditService,
 	}
 }
 

@@ -1,105 +1,204 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
-	"nvo-api/pkg/util/jwt"
+	"strconv"
 	"strings"
+
+	"nvo-api/core/log"
+	"nvo-api/pkg/util/jwt"
 
 	"github.com/casbin/casbin/v3"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
-const SuperAdminRole = "role:super_admin"
-
-func Casbin(enforcer *casbin.SyncedEnforcer) gin.HandlerFunc {
+// JWTAuth JWT 认证中间件（支持白名单）
+func JWTAuth(jwtUtil *jwt.JWT, whitelist []string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 获取用户信息（由 JWT 中间件设置）
-		userID, exists := c.Get("user_id")
-		if !exists {
+		// 检查是否在白名单中
+		if isInWhitelist(c.Request.URL.Path, whitelist) {
+			log.Debug("path in whitelist, skip jwt auth", zap.String("path", c.Request.URL.Path))
+			c.Next()
+			return
+		}
+
+		// 1. 获取 Authorization 头
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			log.Warn("missing authorization header", zap.String("path", c.Request.URL.Path))
 			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "unauthorized",
+				"code":    1001,
+				"message": "未提供认证令牌",
 			})
 			c.Abort()
 			return
 		}
 
-		subject := "user:" + userID.(string)
+		// 2. 解析 Bearer Token
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			log.Warn("invalid authorization format", zap.String("header", authHeader))
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"code":    1002,
+				"message": "认证令牌格式错误",
+			})
+			c.Abort()
+			return
+		}
 
-		// 检查是否是超级管理员
+		tokenString := parts[1]
+
+		// 3. 验证 Token
+		claims, err := jwtUtil.ParseToken(tokenString)
+		if err != nil {
+			log.Warn("invalid token",
+				zap.Error(err),
+				zap.String("path", c.Request.URL.Path))
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"code":    1003,
+				"message": "认证令牌无效或已过期",
+			})
+			c.Abort()
+			return
+		}
+
+		// 4. 解析用户 ID
+		userID, err := strconv.ParseUint(claims.UserID, 10, 32)
+		if err != nil {
+			log.Error("invalid user_id in token", zap.String("user_id", claims.UserID))
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"code":    1004,
+				"message": "认证令牌数据异常",
+			})
+			c.Abort()
+			return
+		}
+
+		// 5. 将用户信息注入到上下文
+		c.Set("user_id", uint(userID))
+		c.Set("username", claims.Username)
+		c.Set("roles", claims.Roles)
+		c.Set("claims", claims)
+
+		log.Debug("jwt auth success",
+			zap.Uint("user_id", uint(userID)),
+			zap.String("username", claims.Username),
+			zap.Strings("roles", claims.Roles))
+
+		c.Next()
+	}
+}
+
+// CasbinAuth Casbin 权限认证中间件（支持白名单）
+func CasbinAuth(enforcer *casbin.SyncedEnforcer, whitelist []string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 检查是否在白名单中
+		if isInWhitelist(c.Request.URL.Path, whitelist) {
+			log.Debug("path in whitelist, skip casbin auth", zap.String("path", c.Request.URL.Path))
+			c.Next()
+			return
+		}
+
+		// 1. 获取用户信息（由 JWT 中间件注入）
+		userID, exists := c.Get("user_id")
+		if !exists {
+			log.Warn("user_id not found in context", zap.String("path", c.Request.URL.Path))
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"code":    1001,
+				"message": "未认证",
+			})
+			c.Abort()
+			return
+		}
+
+		// 2. 构建 Casbin subject
+		subject := fmt.Sprintf("user:%d", userID.(uint))
+		path := c.Request.URL.Path
+		method := c.Request.Method
+
+		// 3. 检查是否是超级管理员
 		roles, err := enforcer.GetRolesForUser(subject)
-		if err == nil {
+		if err != nil {
+			log.Error("failed to get user roles",
+				zap.Error(err),
+				zap.String("subject", subject))
+		} else {
+			// 超级管理员拥有所有权限
 			for _, role := range roles {
-				if role == SuperAdminRole {
-					// 超管直接放行
+				if role == "role:1" || role == "admin" {
+					log.Debug("super admin access granted",
+						zap.String("subject", subject),
+						zap.String("path", path),
+						zap.String("method", method))
 					c.Next()
 					return
 				}
 			}
 		}
 
-		// 普通用户进行权限检查
-		path := c.Request.URL.Path
-		method := c.Request.Method
-
+		// 4. 普通用户权限检查
 		ok, err := enforcer.Enforce(subject, path, method, "api")
 		if err != nil {
+			log.Error("casbin enforce failed",
+				zap.Error(err),
+				zap.String("subject", subject),
+				zap.String("path", path),
+				zap.String("method", method))
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "permission check failed",
+				"code":    2002,
+				"message": "权限检查失败",
 			})
 			c.Abort()
 			return
 		}
 
 		if !ok {
+			log.Warn("permission denied",
+				zap.String("subject", subject),
+				zap.String("path", path),
+				zap.String("method", method))
 			c.JSON(http.StatusForbidden, gin.H{
-				"error": "permission denied",
+				"code":    2001,
+				"message": "无权访问此资源",
 			})
 			c.Abort()
 			return
 		}
+
+		log.Debug("casbin auth success",
+			zap.String("subject", subject),
+			zap.String("path", path),
+			zap.String("method", method))
 
 		c.Next()
 	}
 }
 
-func Jwt(jwt *jwt.JWT) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// 获取
-		authorization := c.GetHeader("Authorization")
-		if authorization == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "missing authoruzation header",
-			})
-			c.Abort()
-			return
+// isInWhitelist 检查路径是否在白名单中（公共方法）
+func isInWhitelist(path string, whitelist []string) bool {
+	for _, pattern := range whitelist {
+		// 精确匹配
+		if path == pattern {
+			return true
 		}
 
-		// 解析
-		token := strings.SplitN(authorization, " ", 2)
-		if len(token) != 2 || token[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "invalid authorization format",
-			})
-			c.Abort()
-			return
+		// 前缀匹配（支持通配符 /*）
+		if strings.HasSuffix(pattern, "/*") {
+			prefix := strings.TrimSuffix(pattern, "/*")
+			if strings.HasPrefix(path, prefix) {
+				return true
+			}
 		}
 
-		// 验证
-		claims, err := jwt.ParseToken(token[1])
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "invalid token",
-			})
-			c.Abort()
-			return
+		// 后缀匹配（支持通配符 *）
+		if strings.HasPrefix(pattern, "*") {
+			suffix := strings.TrimPrefix(pattern, "*")
+			if strings.HasSuffix(path, suffix) {
+				return true
+			}
 		}
-
-		// 注入
-		c.Set("claims", claims.UserID)
-		c.Set("username", claims.Username)
-		c.Set("roles", claims.Roles)
-		c.Set("claims", claims)
-
-		c.Next()
 	}
+	return false
 }

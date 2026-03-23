@@ -25,7 +25,6 @@ type UserService struct {
 }
 
 // NewUserService 创建用户服务
-// 显式声明所需依赖，清晰明了
 func NewUserService(
 	db *gorm.DB,
 	enforcer *casbin.SyncedEnforcer,
@@ -120,18 +119,7 @@ func (s *UserService) GetByID(id uint) (*userDomain.UserResponse, error) {
 	subject := fmt.Sprintf("user:%d", user.ID)
 	roles, _ := s.enforcer.GetRolesForUser(subject)
 
-	return &userDomain.UserResponse{
-		ID:        user.ID,
-		Username:  user.Username,
-		Nickname:  user.Nickname,
-		Email:     user.Email,
-		Phone:     user.Phone,
-		Avatar:    user.Avatar,
-		Status:    user.Status,
-		Roles:     roles,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-	}, nil
+	return user.ToResponse(roles), nil
 }
 
 // Update 更新用户
@@ -249,27 +237,15 @@ func (s *UserService) List(req *userDomain.ListUserRequest) ([]*userDomain.UserR
 		return nil, 0, err
 	}
 
-	// 转换为响应格式
-	responses := make([]*userDomain.UserResponse, 0, len(users))
-	for _, user := range users {
-		subject := fmt.Sprintf("user:%d", user.ID)
-		roles, _ := s.enforcer.GetRolesForUser(subject)
-
-		responses = append(responses, &userDomain.UserResponse{
-			ID:        user.ID,
-			Username:  user.Username,
-			Nickname:  user.Nickname,
-			Email:     user.Email,
-			Phone:     user.Phone,
-			Avatar:    user.Avatar,
-			Status:    user.Status,
-			Roles:     roles,
-			CreatedAt: user.CreatedAt,
-			UpdatedAt: user.UpdatedAt,
-		})
+	if len(users) == 0 {
+		return []*userDomain.UserResponse{}, 0, nil
 	}
 
-	return responses, total, nil
+	// ✅ 批量查询所有用户的角色（解决 N+1 问题）
+	rolesMap := s.batchGetUserRoles(users)
+
+	// 转换为响应格式
+	return userDomain.ToResponseList(users, rolesMap), total, nil
 }
 
 // ChangePassword 修改密码
@@ -302,46 +278,48 @@ func (s *UserService) ChangePassword(id uint, oldPassword, newPassword string) e
 	return nil
 }
 
-// GetUserWithRoles 获取用户及其角色详情（跨模块调用）
-func (s *UserService) GetUserWithRoles(id uint) (*userDomain.UserWithRoles, error) {
-	// 1. 获取用户基本信息
-	userResp, err := s.GetByID(id)
+// batchGetUserRoles 批量获取用户角色
+func (s *UserService) batchGetUserRoles(users []*userDomain.User) map[uint][]string {
+	rolesMap := make(map[uint][]string)
+
+	if s.enforcer == nil {
+		return rolesMap
+	}
+
+	// 构建所有用户的 subject 列表
+	userSubjects := make([]string, len(users))
+	subjectToID := make(map[string]uint)
+	for i, user := range users {
+		subject := fmt.Sprintf("user:%d", user.ID)
+		userSubjects[i] = subject
+		subjectToID[subject] = user.ID
+		rolesMap[user.ID] = []string{} // 初始化空数组
+	}
+
+	// 批量查询 casbin_rule 表（一次查询获取所有用户的角色）
+	type CasbinRule struct {
+		V0 string // user:1
+		V1 string // role:1
+	}
+	var rules []CasbinRule
+	err := s.db.Table("casbin_rule").
+		Select("v0, v1").
+		Where("ptype = ? AND v0 IN ?", "g", userSubjects).
+		Find(&rules).Error
+
 	if err != nil {
-		return nil, err
+		log.Warn("batch get user roles failed", zap.Error(err))
+		return rolesMap
 	}
 
-	// 2. ✅ 直接调用 RoleService（精确依赖）
-	if s.roleService == nil {
-		return &userDomain.UserWithRoles{
-			UserResponse: userResp,
-			RoleDetails:  []*userDomain.RoleDetail{},
-		}, nil
+	// 构建角色映射
+	for _, rule := range rules {
+		if userID, ok := subjectToID[rule.V0]; ok {
+			rolesMap[userID] = append(rolesMap[userID], rule.V1)
+		}
 	}
 
-	roles, err := s.roleService.GetRolesByUserID(id)
-	if err != nil {
-		log.Warn("failed to get user roles", zap.Error(err))
-		return &userDomain.UserWithRoles{
-			UserResponse: userResp,
-			RoleDetails:  []*userDomain.RoleDetail{},
-		}, nil
-	}
-
-	// 3. 转换为角色详情
-	roleDetails := make([]*userDomain.RoleDetail, 0, len(roles))
-	for _, role := range roles {
-		roleDetails = append(roleDetails, &userDomain.RoleDetail{
-			ID:          role.ID,
-			Code:        role.Code,
-			Name:        role.Name,
-			Description: role.Description,
-		})
-	}
-
-	return &userDomain.UserWithRoles{
-		UserResponse: userResp,
-		RoleDetails:  roleDetails,
-	}, nil
+	return rolesMap
 }
 
 // AssignRoles 为用户分配角色

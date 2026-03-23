@@ -28,9 +28,9 @@ type RoleService struct {
 func NewRoleService(pocket *core.Pocket) domain.RoleService {
 	return &RoleService{
 		pocket:   pocket,
-		repo:     repository.NewRoleRepository(pocket.DB),
 		enforcer: pocket.Enforcer,
 		db:       pocket.DB,
+		repo:     repository.NewRoleRepository(pocket.DB),
 	}
 }
 

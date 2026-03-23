@@ -10,7 +10,6 @@ const (
 	// 成功
 	SUCCESS Code = 0
 
-
 	// 业务错误 (3xxx)
 
 )

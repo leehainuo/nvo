@@ -6,6 +6,7 @@ import (
 	"nvo-api/core"
 	"nvo-api/core/config"
 	"nvo-api/core/log"
+	"nvo-api/core/middleware"
 	"nvo-api/internal/system"
 )
 
@@ -32,7 +33,11 @@ func main() {
 
 	log.Info("Application initialized successfully")
 
+	// 应用全局认证中间件（带白名单）
 	api := pocket.GinEngine.Group("/api/v1")
+	api.Use(middleware.JWTAuth(pocket.JWT, pocket.Config.Auth.Whitelist))
+	api.Use(middleware.CasbinAuth(pocket.Enforcer, pocket.Config.Auth.Whitelist))
+
 	system.RegisterModules(api, pocket)
 
 	// 启动服务

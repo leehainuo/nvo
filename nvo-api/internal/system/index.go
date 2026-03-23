@@ -5,7 +5,9 @@ import (
 	"nvo-api/core/log"
 	"nvo-api/internal"
 	"nvo-api/internal/system/audit"
+	"nvo-api/internal/system/auth"
 	"nvo-api/internal/system/dept"
+	"nvo-api/internal/system/dict"
 	"nvo-api/internal/system/menu"
 	"nvo-api/internal/system/permission"
 	"nvo-api/internal/system/role"
@@ -22,27 +24,35 @@ func RegisterModules(r *gin.RouterGroup, p *core.Pocket) {
 	log.Info("Registering system modules...")
 
 	// 阶段 1：初始化无依赖模块
-	permModule := permission.NewModule(p)
-	roleModule := role.NewModule(p)
-	menuModule := menu.NewModule(p)
-	deptModule := dept.NewModule(p)
+	permModule  := permission.NewModule(p)
+	roleModule  := role.NewModule(p)
+	menuModule  := menu.NewModule(p)
+	deptModule  := dept.NewModule(p)
 	auditModule := audit.NewModule(p)
+	dictModule  := dict.NewModule(p)
 
-	// 阶段 2：创建 SystemService（user 先传 nil）
+	// 阶段 2：初始化 SystemService
+	// UserService 依赖 RoleService 在阶段3注入
 	p.System = internal.NewSystemService(
-		nil, // userService 在阶段 3 注入
+		nil,
 		roleModule.Service(),
 		permModule.Service(),
 		menuModule.Service(),
 		deptModule.Service(),
 		auditModule.Service(),
+		nil,
+		dictModule.Service(),
 	)
 
-	// 阶段 3：初始化 user 模块（此时 p.System.Role 已可用）
+	// 阶段 3：初始化单向依赖模块
 	userModule := user.NewModule(p)
 	p.System.User = userModule.Service()
 
-	// 阶段 4：数据库迁移和路由注册
+	// 阶段 4：初始化认证模块（依赖 User 和 Menu）
+	authModule := auth.NewModule(p)
+	p.System.Auth = authModule.Service()
+
+	// 阶段 5：数据库迁移和路由注册
 	modules := []internal.Module{
 		permModule,
 		roleModule,
@@ -50,6 +60,8 @@ func RegisterModules(r *gin.RouterGroup, p *core.Pocket) {
 		menuModule,
 		deptModule,
 		auditModule,
+		authModule,
+		dictModule,
 	}
 
 	if err := migrateModels(p.DB, modules); err != nil {
@@ -60,7 +72,7 @@ func RegisterModules(r *gin.RouterGroup, p *core.Pocket) {
 		module.RegisterRoutes(r)
 	}
 
-	log.Info("✓ System modules registered successfully (6 modules)")
+	log.Info("✓ System modules registered successfully (8 modules)")
 }
 
 // migrateModels 收集并迁移所有模块的数据模型
