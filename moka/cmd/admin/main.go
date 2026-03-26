@@ -20,25 +20,24 @@ import (
 
 func main() {
 	// 初始化配置
-	viper, err := config.Init("config/admin")
-	if err != nil {
+	if err := config.Init("config/admin"); err != nil {
 		panic(fmt.Sprintf("\033[1;31mFailed to load config: %v\033[0m", err))
 	}
 
 	// 初始化日志
-	if err := log.Init(viper, "log"); err != nil {
+	if err := log.Init(); err != nil {
 		panic(fmt.Sprintf("\033[1;31mFailed to initialize log: %v\033[0m", err))
 	}
 	defer log.Sync()
 
 	// 初始化MySQL
-	if err := mysql.Init(viper, "mysql"); err != nil {
+	if err := mysql.Init(); err != nil {
 		panic(fmt.Sprintf("\033[1;31mFailed to initialize mysql: %v\033[0m", err))
 	}
 	defer mysql.Close()
 
 	// 初始化Redis
-	if err := redis.Init(viper, "redis"); err != nil {
+	if err := redis.Init(); err != nil {
 		panic(fmt.Sprintf("\033[1;31mFailed to initialize redis: %v\033[0m", err))
 	}
 	defer redis.Close()
@@ -53,7 +52,7 @@ func main() {
 	router := router.Init()
 
 	// 创建HTTP Server
-	addr   := fmt.Sprintf("%s:%d", viper.GetString("server.host"), viper.GetInt("server.port"))
+	addr   := fmt.Sprintf("%s:%d", config.Viper.GetString("server.host"), config.Viper.GetInt("server.port"))
 	server := &http.Server{
 		Addr:    addr,
 		Handler: router,

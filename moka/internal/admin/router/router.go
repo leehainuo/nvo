@@ -1,6 +1,7 @@
 package router
 
 import (
+	"moka/pkg/apperr"
 	"moka/pkg/config"
 	"moka/pkg/middleware"
 
@@ -8,7 +9,7 @@ import (
 )
 
 func Init() *gin.Engine {
-	mode := config.Conf.Server.Mode
+	mode := config.Conf().Server.Mode
 
 	switch mode {
 	case "prod":
@@ -19,11 +20,16 @@ func Init() *gin.Engine {
 		gin.SetMode(gin.DebugMode)
 	}
 
+	apperr.Init(mode != "prod")
+
 	router := gin.New()
 
-	router.Use(middleware.Recovery(true))
+	// router.Use(gin.Recovery())
 	// router.Use(gin.Logger())
+	router.Use(middleware.RequestID())
+	router.Use(middleware.Recovery(true))
 	router.Use(middleware.Logger())
+	router.Use(middleware.Error())
 
 	router.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -35,6 +41,12 @@ func Init() *gin.Engine {
 	router.GET("/panic", func(c *gin.Context) {
 		panic("测试 Recovery 中间件的日志格式")
 	})
+
+	group := router.Group("/api/v1")
+	{
+		InitUserRouter(group)
+		// InitXxxRouter ...
+	}
 
 	return router
 }

@@ -18,12 +18,12 @@ import (
 )
 
 var (
-	Enforcer *casbin.SyncedCachedEnforcer
+	enforcer *casbin.SyncedCachedEnforcer
 	watcher  persist.Watcher
 )
 
 func Init() error {
-	adapter, err := gormadapter.NewAdapterByDB(mysql.Client)
+	adapter, err := gormadapter.NewAdapterByDB(mysql.Client())
 	if err != nil {
 		return fmt.Errorf("failed to create casbin adapter: %w", err)
 	}
@@ -46,10 +46,12 @@ func Init() error {
 	m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act && r.type == p.type
 	`)
 
-	enforcer, err := casbin.NewSyncedCachedEnforcer(m, adapter)
+	tmp, err := casbin.NewSyncedCachedEnforcer(m, adapter)
 	if err != nil {
 		return fmt.Errorf("failed to create casbin enforcer: %w", err)
 	}
+
+	enforcer = tmp
 
 	if err := enforcer.LoadPolicy(); err != nil {
 		return fmt.Errorf("failed to load policy: %w", err)
@@ -61,17 +63,15 @@ func Init() error {
 		return fmt.Errorf("failed to setup redis watcher: %w", err)
 	}
 
-	Enforcer = enforcer
-
 	return nil
 }
 
 func Close() error {
-	if Enforcer == nil {
+	if enforcer == nil {
 		return nil
 	}
 
-	Enforcer.StopAutoLoadPolicy()
+	enforcer.StopAutoLoadPolicy()
 
 	if watcher != nil {
 		watcher.Close()
@@ -80,25 +80,29 @@ func Close() error {
 	return nil
 }
 
+func Enforcer() *casbin.SyncedCachedEnforcer {
+	return enforcer
+}
+
 func CheckAPI(path, method, userID string) (bool, error) {
 	sub := "user:" + userID
-	return Enforcer.Enforce(sub, path, method, "api")
+	return enforcer.Enforce(sub, path, method, "api")
 }
 
 func CheckMenu(menu, userID string) (bool, error) {
 	sub := "user:" + userID
-	return Enforcer.Enforce(sub, menu, "view", "menu")
+	return enforcer.Enforce(sub, menu, "view", "menu")
 }
 
 func CheckButton(button, userID string) (bool, error) {
 	sub := "user:" + userID
-	return Enforcer.Enforce(sub, button, "click", "button")
+	return enforcer.Enforce(sub, button, "click", "button")
 }
 
 func IsSuperAdmin(userID string) (bool, error) {
 	sub := "user:" + userID
 
-	roles, err := Enforcer.GetRolesForUser(sub)
+	roles, err := enforcer.GetRolesForUser(sub)
 	if err != nil {
 		return false, err
 	}
@@ -115,7 +119,7 @@ func AddRoleForUser(role, userID string) (bool, error) {
 
 	role = "role:" + role
 
-	ok, err := Enforcer.AddRoleForUser(sub, role)
+	ok, err := enforcer.AddRoleForUser(sub, role)
 	if err != nil {
 		return false, err
 	}
@@ -128,7 +132,7 @@ func DeleteRoleForUser(role, userID string) (bool, error) {
 
 	role = "role:" + role
 
-	ok, err := Enforcer.DeleteRoleForUser(sub, role)
+	ok, err := enforcer.DeleteRoleForUser(sub, role)
 	if err != nil {
 		return false, err
 	}
@@ -137,7 +141,7 @@ func DeleteRoleForUser(role, userID string) (bool, error) {
 }
 
 func AddPolicy(sub, obj, act, permType string) (bool, error) {
-	ok, err := Enforcer.AddPolicy(sub, obj, act, permType)
+	ok, err := enforcer.AddPolicy(sub, obj, act, permType)
 	if err != nil {
 		return false, err
 	}
@@ -146,7 +150,7 @@ func AddPolicy(sub, obj, act, permType string) (bool, error) {
 }
 
 func RemovePolicy(sub, obj, act, permType string) (bool, error) {
-	ok, err := Enforcer.RemovePolicy(sub, obj, act, permType)
+	ok, err := enforcer.RemovePolicy(sub, obj, act, permType)
 	if err != nil {
 		return false, err
 	}
@@ -155,7 +159,7 @@ func RemovePolicy(sub, obj, act, permType string) (bool, error) {
 }
 
 func ReloadPolicy() error {
-	if err := Enforcer.LoadPolicy(); err != nil {
+	if err := enforcer.LoadPolicy(); err != nil {
 		return fmt.Errorf("failed to reload policy: %w", err)
 	}
 
@@ -163,55 +167,32 @@ func ReloadPolicy() error {
 }
 
 func GetMenus(userID string) ([]string, error) {
-	sub := "user:" + userID
-
-	roles, err := Enforcer.GetRolesForUser(sub)
-	if err != nil {
-		return []string{}, err
-	}
-
-	all := append([]string{sub}, roles...)
-
-	menus := make(map[string]bool)
-	for _, item := range all {
-		policies, err := Enforcer.GetFilteredPolicy(0, item)
-		if err != nil {
-			return []string{}, err
-		}
-		for _, policy := range policies {
-			if len(policy) >= 4 && policy[3] == "menu" {
-				menus[policy[1]] = true
-			}
-		}
-	}
-
-	res := make([]string, 0, len(menus))
-	for menu := range menus {
-		res = append(res, menu)
-	}
-
-	return res, nil
+	return getPermsByType(userID, "menu")
 }
 
 func GetButtons(userID string) ([]string, error) {
-	sub := "user:" + userID
+	return getPermsByType(userID, "button")
+}
 
-	roles, err := Enforcer.GetRolesForUser(sub)
+func getPermsByType(userID, permType string) ([]string, error) {
+	sub := "user:" + userID
+	
+	roles, err := enforcer.GetRolesForUser(sub)
 	if err != nil {
-		return []string{}, err
+		return nil, err
 	}
 
 	all := append([]string{sub}, roles...)
 
-	buttons := make(map[string]bool)
+	buttons := make(map[string]struct{})
 	for _, item := range all {
-		policies, err := Enforcer.GetFilteredPolicy(0, item)
+		policies, err := enforcer.GetFilteredPolicy(0, item)
 		if err != nil {
 			return []string{}, err
 		}
 		for _, policy := range policies {
-			if len(policy) >= 4 && policy[3] == "button" {
-				buttons[policy[1]] = true
+			if len(policy) >= 4 && policy[3] == permType {
+				buttons[policy[1]] = struct{}{}
 			}
 		}
 	}
@@ -225,7 +206,7 @@ func GetButtons(userID string) ([]string, error) {
 }
 
 func setupRedisWatcher(enforcer *casbin.SyncedCachedEnforcer) error {
-	r := redis.Client
+	r := redis.Client()
 	if r == nil {
 		log.Warn("Redis client not available, running in standalone mode")
 		return nil

@@ -3,14 +3,14 @@ package redis
 import (
 	"context"
 	"fmt"
+	"moka/pkg/config"
+	"time"
 
-	"github.com/go-redis/redis/v8"
-	"github.com/spf13/viper"
+	"github.com/redis/go-redis/v9"
 )
 
-var Client *redis.Client
+var client *redis.Client
 
-// Config Redis配置
 type Config struct {
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
@@ -19,20 +19,22 @@ type Config struct {
 	PoolSize int    `mapstructure:"pool_size"`
 }
 
-func Init(v *viper.Viper, key string) error {
+func Init() error {
 	var c Config
-	if err := v.UnmarshalKey(key, &c); err != nil {
+	if err := config.Viper.UnmarshalKey("redis", &c); err != nil {
 		return fmt.Errorf("failed to unmarshal redis config: %w", err)
 	}
-		Client = redis.NewClient(&redis.Options{
+		client = redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", c.Host, c.Port),
 		Password: c.Password,
 		DB:       c.DB,
 		PoolSize: c.PoolSize,
 	})
 
-	ctx := context.Background()
-	if err := Client.Ping(ctx).Err(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
+    defer cancel()
+
+	if err := client.Ping(ctx).Err(); err != nil {
 		return fmt.Errorf("failed to connect redis: %w", err)
 	}
 
@@ -40,13 +42,17 @@ func Init(v *viper.Viper, key string) error {
 }
 
 func Close() error {
-	if Client == nil {
+	if client == nil {
 		return nil
 	}
 
-	if err := Client.Close(); err != nil {
-		return fmt.Errorf("failed to close redis: %v\n", err)
+	if err := client.Close(); err != nil {
+		return fmt.Errorf("failed to close redis: %w", err)
 	}
 
 	return nil
+}
+
+func Client() *redis.Client {
+	return client
 }

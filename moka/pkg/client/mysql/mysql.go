@@ -2,17 +2,16 @@ package mysql
 
 import (
 	"fmt"
+	"moka/pkg/config"
 	"time"
 
-	"github.com/spf13/viper"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
-var Client *gorm.DB
+var client *gorm.DB
 
-// Config MySQL配置
 type Config struct {
 	Driver          string `mapstructure:"driver"`
 	Host            string `mapstructure:"host"`
@@ -25,10 +24,9 @@ type Config struct {
 	ConnMaxLifetime int    `mapstructure:"conn_max_lifetime"` // 秒
 }
 
-// InitDB 初始化数据库连接
-func Init(v *viper.Viper, key string) error {
+func Init() error {
 	var c Config
-	if err := v.UnmarshalKey(key, &c); err != nil {
+	if err := config.Viper.UnmarshalKey("mysql", &c); err != nil {
 		return fmt.Errorf("failed to unmarshal mysql config: %w", err)
 	}
 
@@ -60,17 +58,17 @@ func Init(v *viper.Viper, key string) error {
 		return fmt.Errorf("failed to ping mysql: %w", err)
 	}
 
-	Client = db
+	client = db
 
 	return nil
 }
 
 func Close() error {
-	if Client == nil {
+	if client == nil {
 		return nil
 	}
 
-	sqlDB, err := Client.DB()
+	sqlDB, err := client.DB()
 	if err != nil {
 		return fmt.Errorf("failed to get mysql instance: %w", err)
 	}
@@ -80,4 +78,8 @@ func Close() error {
 	}
 
 	return nil
+}
+
+func Client() *gorm.DB {
+	return client
 }

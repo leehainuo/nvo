@@ -5,15 +5,15 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"moka/pkg/config"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/spf13/viper"
 )
 
-var JWT  *Config
+var j *Config
 
-// Config JWT 配置
+// Config j 配置
 type Config struct {
 	Secret          string        `mapstructure:"secret"`
 	Issuer          string        `mapstructure:"issuer"`
@@ -44,14 +44,14 @@ type TokenPair struct {
 	ExpiresIn    int64  `json:"expires_in"`
 }
 
-func Init(v *viper.Viper, key string) error {
+func init() {
 	var c Config
-	if err := v.UnmarshalKey(key, &c); err != nil {
-		return fmt.Errorf("failed to unmarshal jwt config: %w", err)
+	if err := config.Viper.UnmarshalKey("jwt", &c); err != nil {
+		panic(fmt.Sprintf("\033[1;31mfailed to unmarshal jwt config: %v\033[0m", err))
 	}
 
 	if c.Secret == "" {
-		return errors.New("jwt secret is required")
+		panic("\033[1;31mjwt secret is required\033[0m")
 	}
 
 	if c.Issuer == "" {
@@ -66,9 +66,7 @@ func Init(v *viper.Viper, key string) error {
 		c.RefreshExpire = 7 * 24 * time.Hour
 	}
 
-	JWT = &c
-
-	return nil
+	j = &c
 }
 
 func generateTokenID() (string, error) {
@@ -77,6 +75,10 @@ func generateTokenID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes), nil
+}
+
+func JWT() Config {
+	return *j
 }
 
 func GenerateAccessToken(userID, username string, roles []string) (string, error) {
@@ -93,15 +95,15 @@ func GenerateAccessToken(userID, username string, roles []string) (string, error
 		TokenID:  tokenID,
 		Roles:    roles,
 		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    JWT.Issuer,
+			Issuer:    j.Issuer,
 			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(JWT.AccessExpire)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(j.AccessExpire)),
 		},
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
-	return token.SignedString([]byte(JWT.Secret))
+	return token.SignedString([]byte(j.Secret))
 }
 
 func GenerateRefreshToken(userID string) (string, error) {
@@ -116,15 +118,15 @@ func GenerateRefreshToken(userID string) (string, error) {
         UserID:  userID,
         TokenID: tokenID,
         RegisteredClaims: jwt.RegisteredClaims{
-            Issuer:    JWT.Issuer,
+            Issuer:    j.Issuer,
             IssuedAt:  jwt.NewNumericDate(now),
-            ExpiresAt: jwt.NewNumericDate(now.Add(JWT.RefreshExpire)),
+            ExpiresAt: jwt.NewNumericDate(now.Add(j.RefreshExpire)),
         },
     }
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
-	return token.SignedString([]byte(JWT.Secret))
+	return token.SignedString([]byte(j.Secret))
 }
 
 func GenerateTokenPair(userID, username string, roles[]string) (*TokenPair, error) {
@@ -141,7 +143,7 @@ func GenerateTokenPair(userID, username string, roles[]string) (*TokenPair, erro
 	pair := &TokenPair{
 		AccessToken:  access,
 		RefreshToken: refresh,
-		ExpiresIn:    int64(JWT.AccessExpire.Seconds()),
+		ExpiresIn:    int64(j.AccessExpire.Seconds()),
 	}
 
 	return pair, nil
@@ -152,7 +154,7 @@ func ValidateAccessToken(tokenString string) (*UserClaims, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, jwt.ErrTokenSignatureInvalid
 		}
-		return []byte(JWT.Secret), nil
+		return []byte(j.Secret), nil
 	})
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
@@ -173,7 +175,7 @@ func ValidateRefreshToken(tokenString string) (*RefreshClaims, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, jwt.ErrTokenSignatureInvalid
 		}
-		return []byte(JWT.Secret), nil
+		return []byte(j.Secret), nil
 	})
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
@@ -187,33 +189,6 @@ func ValidateRefreshToken(tokenString string) (*RefreshClaims, error) {
 	}
 
 	return nil, jwt.ErrTokenInvalidClaims
-}
-
-func ParseUserID(tokenString string) (string, error) {
-	claims, err := ValidateAccessToken(tokenString)
-	if err != nil {
-		return "", err
-	}
-
-	return claims.UserID, nil
-}
-
-func ParseUsername(tokenString string) (string, error) {
-	claims, err := ValidateAccessToken(tokenString)
-	if err != nil {
-		return "", err
-	}
-
-	return claims.Username, nil	
-}
-
-func ParseRoles(tokenString string) ([]string, error) {
-	claims, err := ValidateAccessToken(tokenString)
-	if err != nil {
-		return nil, err
-	}
-
-	return claims.Roles, nil
 }
 
 func ExtractTokenID(tokenString string) (string, error) {

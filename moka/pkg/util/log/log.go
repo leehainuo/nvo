@@ -2,11 +2,11 @@ package log
 
 import (
 	"fmt"
+	"moka/pkg/config"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -25,9 +25,9 @@ type Config struct {
 	Compress   bool   `mapstructure:"compress"`    // 是否压缩
 }
 
-func Init(v *viper.Viper, key string) error {
+func Init() error {
 	var c Config
-	if err := v.UnmarshalKey(key, &c); err != nil {
+	if err := config.Viper.UnmarshalKey("log", &c); err != nil {
 		return fmt.Errorf("failed to unmarshal log config: %w", err)
 	}
 

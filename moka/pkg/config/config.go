@@ -8,21 +8,26 @@ import (
 	"github.com/spf13/viper"
 )
 
-var Conf *Config
+var (
+	conf  *Config
+	Viper *viper.Viper
+)
 
-// Config 配置
 type Config struct {
 	Server ServerConfig `mapstructure:"server"`
 }
 
-// ServerConfig 服务器配置
 type ServerConfig struct {
 	Host string `mapstructure:"host"`
 	Port int    `mapstructure:"port"`
 	Mode string `mapstructure:"mode"`
 }
 
-func Init(dir string) (*viper.Viper, error) {
+func Conf() Config {
+	return *conf
+}
+
+func Init(dir string) error {
 	v := viper.New()
 
 	pflag.StringP("env", "e", "dev", "mode: dev, beta, prod")
@@ -41,15 +46,17 @@ func Init(dir string) (*viper.Viper, error) {
 	v.SetConfigType("yaml")
 
 	if err := v.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("failed to read config: %w", err)
+		return fmt.Errorf("failed to read config: %w", err)
 	}
 
-	Conf = &Config{}
-	if err := v.Unmarshal(Conf); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	conf = &Config{}
+	if err := v.Unmarshal(conf); err != nil {
+		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	return v, nil
+	Viper = v
+
+	return nil
 }
 
 func buildPath(dir, env string) string {
